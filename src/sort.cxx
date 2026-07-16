@@ -23,8 +23,8 @@ int main(int argc, char** argv) {
   std::vector<std::string> files;
   for(int i = 1; i < argc; ++i) files.push_back(argv[i]);
 
-  GChannel::ReadDetmap("cals/detmap3.tsv");
-  GHistogramer::Get().SetOutFile("hist.root");
+  GChannel::ReadDetmap("cals/newdetmap3.tsv");
+  GHistogramer::Get().SetOutFile("calhist.root");
 
   evtLoop  reader(files, 500000, true);
   ddasLoop converter(reader, 200, 1);
