@@ -18,19 +18,14 @@ void GBCS::Reset() {
 }
 
 bool GBCS::IsImplant() const {
-  // Implant: low-gain DSSD fires front AND back, SSSD quiet (below t_h2).
-  double th2 = gEnv->GetValue("BCS.SSSD.th2", 1e9);   // default: never quiet-fails
-  bool dssd      = fLowGain.Triggered();
-  bool sssdQuiet = fSSSD.MaximumEnergy() < th2;
-  return dssd && sssdQuiet;
+  // Implant is like a meteor crashing onto earth so low-gain trigger is enough to identify it.
+  // SSSD should be below threshold th2 to avoid noise.
+  return fLowGain.Triggered() && fSSSD.MaximumEnergy() < th2;
 }
 
 bool GBCS::IsDecay() const {
-  // Decay: high-gain DSSD fires front AND back, no PIN (anti-coincidence),
-  //        SSSD in noise region (below t_h1).
-  double th1 = gEnv->GetValue("BCS.SSSD.th1", 1e9);
-  bool dssd      = fHighGain.Triggered();
-  bool noPin     = !(fPin1.Time() > 0 || fPin2.Time() > 0 || fPin3.Time() > 0);
-  bool sssdNoise = fSSSD.MaximumEnergy() < th1;
-  return dssd && noPin && sssdNoise;
+  // For Decay PIN and SSSD has to be silent.
+  // Silent = below threshold th1 (noise)
+  bool noPin = !(fPin1.Time() > 0 || fPin2.Time() > 0 || fPin3.Time() > 0);
+  return fHighGain.Triggered() && noPin && fSSSD.MaximumEnergy() < th1;
 }

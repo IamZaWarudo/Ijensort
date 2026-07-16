@@ -60,6 +60,8 @@ function(add_ijensort_executable target source)
         PRIVATE
             GCORE
             GFORMAT
+            GHISTOGRAMER
+            GBCS
             ${ROOT_LIBRARIES}
     )
 
@@ -85,3 +87,4 @@ function(add_ijensort_executable target source)
 
     add_ijensort_executable(ijensort src/ijensort.cxx)
     add_ijensort_executable(printHits src/printHits.cxx)
+    add_ijensort_executable(sort src/sort.cxx)
