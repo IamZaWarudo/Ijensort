@@ -59,6 +59,7 @@ function(add_ijensort_executable target source)
     target_link_libraries(${target} 
         PRIVATE
             GCORE
+            GFORMAT
             ${ROOT_LIBRARIES}
     )
 
@@ -83,3 +84,4 @@ function(add_ijensort_executable target source)
     endfunction()
 
     add_ijensort_executable(ijensort src/ijensort.cxx)
+    add_ijensort_executable(printHits src/printHits.cxx)
