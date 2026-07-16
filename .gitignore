@@ -16,5 +16,7 @@ a.out
 *.c
 *.tof
 
+run1102
+
 .DS_Store
 .gint_history
