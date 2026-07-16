@@ -1,0 +1,38 @@
+Unix.*.Root.MacroPath: .:$(GRUTSYS)/util:$(ROOTSYS)/macros
+
+#default MakeHistos library
+
+#files to load at log in:
+Ijen.History $(IJENSORTSYS)/.ijen_history;
+Ijen.HistSize: 1000000
+
+Rint.PromptColor:  bold cyan
+Rint.BracketColor: bold green
+Rint.BadBracketColor: bold red underlined
+Rint.TabComColor: magenta
+
+#see https://root.cern.ch/doc/master/classTColor.html for color numbers
+Ijen.Style: 107 #kVisibleSpectrum
+
+
+Browser.Name:    TRootBrowser
+Canvas.Name:     TRootCanvas
+
+#default root variables form the grsi enviorment
+Canvas.MoveOpaque: false
+Canvas.ResizeOpaque: false
+Canvas.ShowEventStatus: true
+Canvas.ShowToolBar: true
+Canvas.UseScreenFactor: true
+Canvas.ShowGuideLines: false
+
+
+Hists.Stats: "neiou"
+
+Root.Fitter: Fumili2
+#Root.Fitter: Minuit
+
+#Gui.Backend: qt
+#Gui.Factory: qt
+#$(ROOTSYS)/etc/root.mimes
+Gui.MimeTypeFile:  $(IJENSORTSYS)/.gint.mimes
