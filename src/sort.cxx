@@ -2,6 +2,11 @@
 #include <vector>
 #include <string>
 
+#include <chrono>
+#include <iostream>
+#include <string>
+#include <algorithm>
+
 #include <evtLoop.h>
 #include <ddasLoop.h>
 #include <ddasHit.h>
@@ -26,6 +31,14 @@ int main(int argc, char** argv) {
   reader.Start();
   converter.Start();
 
+  int64_t  lastPos    = 0;
+  uint64_t lastBlocks = 0;
+  uint64_t lastHits   = 0;
+  auto lastTime  = std::chrono::steady_clock::now();
+  auto lastPrint = lastTime;
+
+  std::cout << HIDE_CURSOR << std::flush;
+
   GBCS bcs;
   std::vector<ddasHit> event;
   while(!converter.Finished() || !converter.Empty()) {
@@ -33,7 +46,44 @@ int main(int argc, char** argv) {
       ProcessEvent(bcs, event);
       event.clear();
     }
+
+  auto now = std::chrono::steady_clock::now();
+  if(now - lastPrint > std::chrono::milliseconds(500)) {
+    auto e = reader.GetStats();
+    auto d = converter.GetStats();
+
+    constexpr int barWidth = 30;
+    double percent = e.Percent();
+    int filled = std::clamp(static_cast<int>((percent / 100.0) * barWidth), 0, barWidth);
+    std::string bar(filled, '#');
+    bar.append(barWidth - filled, '-');
+
+    double dt = std::chrono::duration<double>(now - lastTime).count();
+    double mbps = 0, blockRate = 0, hitRate = 0;
+    if(dt > 0) {
+      mbps      = (e.filePos     - lastPos)    / dt / 1024.0 / 1024.0;
+      blockRate = (e.blocksRead  - lastBlocks) / dt;
+      hitRate   = (d.hitsBuilt   - lastHits)   / dt;
+    }
+
+    printf(CLEAR_LINE "[%s] %6.2f%%  file %llu/%llu  %.1f/%.1f MB  %7.1f MB/s\n",
+        bar.c_str(), percent,
+        (unsigned long long)e.currentFile, (unsigned long long)e.totalFiles,
+        e.filePos / 1024.0 / 1024.0, e.fileSize / 1024.0 / 1024.0, mbps);
+    printf(CLEAR_LINE "blocks=%llu (%6.0f/s)  hits=%llu (%6.0f/s)",
+        (unsigned long long)e.blocksRead, blockRate,
+        (unsigned long long)d.hitsBuilt,  hitRate);
+    fflush(stdout);
+    printf(CURSOR_UP);
+    fflush(stdout);
+
+    lastPos = e.filePos; lastBlocks = e.blocksRead; lastHits = d.hitsBuilt;
+    lastTime = now; lastPrint = now;
   }
+
+  }
+
+  printf(CURSOR_DOWN "\n" SHOW_CURSOR);
 
   reader.Stop();
   converter.Stop();
@@ -88,8 +138,27 @@ for(const auto &hit : event) {
   bcs.fHighGain.Build();
   bcs.fLowGain.Build();
 
+
+// Fill histograms for each hit in the event
+  for(auto hit : event) {
+    GHistogramer::Get().Fill("All_Channel/ecal",16000,0,64000,hit.GetEcal(),
+                                       300,0,300,hit.GetId());
+    GHistogramer::Get().Fill("All_Channel/raw",16000,0,64000,hit.GetCharge(),
+                                       300,0,300,hit.GetId());}
+
+
   // The one histogram that matters first: the SSSD spectrum that tells us t_h1/t_h2.
   double sssdMax = bcs.fSSSD.MaximumEnergy();
   if(sssdMax > 0)
     GHistogramer::Get().Fill("sssd/max_energy", 4000, 0, 32000, sssdMax);
+
+
+  //Position Plots
+  if(bcs.fHighGain.HasPosition()){     // High-gain -> Decay (car crash down the street)
+    GHistogramer::Get().Fill("dssd/high_gain_position", 40, 0, 40, bcs.fHighGain.X(),
+                                                        40, 0, 40, bcs.fHighGain.Y());}
+  if(bcs.fLowGain.HasPosition()){     // Low-gain -> Implant (meteor crash down the street)
+    GHistogramer::Get().Fill("dssd/low_gain_position", 40, 0, 40, bcs.fLowGain.X(),
+                                                       40, 0, 40, bcs.fLowGain.Y());}
+
 }

@@ -9,7 +9,7 @@
 
 class GBCS {
   public:  
-    GBCS() = default;
+    GBCS();
     ~GBCS() = default;
 
     void Reset();
@@ -23,7 +23,7 @@ class GBCS {
 
   // Implant-Decay correlation thresholds
     static constexpr double th1 = 2000; 
-    static constexpr double th2 = 4500;
+    static constexpr double th2 = 5200;
 
     bool IsImplant() const;
     bool IsDecay()   const;

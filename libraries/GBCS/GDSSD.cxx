@@ -3,6 +3,11 @@
 
 #include<cstdio>
 
+// For reference
+// Low-gain -> Implant ; because it deposits more energy
+// High-gain -> Decay ; because it deposits less energy 
+
+
 void GDSSD::Reset() { 
   fX = -1;
   fY = -1;
@@ -48,71 +53,50 @@ int GDSSD::GetStrip(const ddasHit &hit) const {
 
 // Weighted average to get XY position == (front strip, back strip)
 
-void GDSSD::Build() {
+double GDSSD::Position(const std::vector<ddasHit>& hits) const {  
+  double sum     = 0.0;
+  double weight  = 0.0;
 
-  double sumFront    = 0;
-  double sumBack     = 0;
-  double weightFront = 0;
-  double weightBack  = 0;
+  for(const auto& hit : hits){
+    const int strip = GetStrip(hit);
+    const double energy = hit.GetEcal();
 
-  for(const auto& front : fFront) {
-    for(const auto& back : fBack) {
-      if(abs(front.GetTime() - back.GetTime()) > 100) continue;
+    if(strip<0 || energy<=0)
+      continue;
 
-      sumFront    += front.GetEcal();
-      sumBack     += back.GetEcal();
-      weightFront += front.GetEcal() * GetStrip(front);
-      weightBack  += back.GetEcal()  * GetStrip(back);   // was front.GetEcal()
+    weight += energy*strip;
+    sum    += energy;
+  }
+
+  return sum > 0.0 ? weight/sum : -1.0;
+}
+
+double GDSSD::MaxEnergyTime(const std::vector<ddasHit>& hits) const {
+  double maxEnergy = -1;
+  double time      = -1;
+
+  for(const auto& hit : hits) {
+    if(hit.GetEcal() > maxEnergy) {
+      maxEnergy = hit.GetEcal();
+      time      = hit.GetTime();
     }
   }
 
-  fX = sumFront > 0 ? weightFront / sumFront : -1;
-  fY = sumBack  > 0 ? weightBack  / sumBack  : -1;
+  return time;
 }
 
-
-/*
+void GDSSD::Build() {
   fX = -1;
   fY = -1;
 
-  if(fFront.empty() || fBack.empty())
-  return;
+  // front/back coincidence: gate on the time difference of the highest-energy hit on each side. Reject the event if out of window.
+  const double dt = MaxEnergyTime(fFront) - MaxEnergyTime(fBack);
+  if(dt < fTLow || dt > fTHigh)  // defined in GBCS.h
+    return;
 
-  double frontWeightedSum = 0.0;
-  double frontEnergySum = 0.0;
-
-  for(const auto& hit : fFront) {
-    const int strip = FrontStrip(hit.GetId());
-    const double energy = hit.GetEcal();
-
-    if(strip < 0 || energy <= 0)
-    continue;
-
-    frontWeightedSum += strip * energy;
-    frontEnergySum += energy;
-  }
-
-  double backWeightedSum = 0.0;
-  double backEnergySum = 0.0;
-
-  for(const auto& hit : fBack) {
-    const int strip = BackStrip(hit.GetId());
-    const double energy = hit.GetEcal();
-
-    if(strip < 0 || energy <= 0)
-    continue;
-
-    backWeightedSum += strip * energy;
-    backEnergySum += energy;
-  }
-
-  if(frontEnergySum <= 0 || backEnergySum <= 0)
-  return;
-
-  fX = frontWeightedSum / frontEnergySum;
-  fY = backWeightedSum / backEnergySum;
+  fX = Position(fFront);
+  fY = Position(fBack);
 }
-*/
 
 double GDSSD::FrontEnergySum() const {
   double sum = 0.0;

@@ -28,8 +28,9 @@ class GDSSD {
     void AddBackHit(const ddasHit &hit)  { fBack.emplace_back(hit); }
 
 // implementing DSSD front v/s back position plot
+    double MaxEnergyTime(const std::vector<ddasHit>& hits) const;
     void Build();  // convert fFront & fBack into pixels.
-    bool HasPosition() const {return fX >= 0 && fY >= 0;}
+    bool HasPosition() const {return fX >= 0 && fY >= 0;}  // To reject any pixel that weren't constructed properly
     double X() const {return fX;}
     double Y() const {return fY;}  // channel id to strip calculation done in GDSSD.cxx   
 
@@ -43,10 +44,17 @@ class GDSSD {
 
     int GetStrip(const ddasHit&) const; 
 
+    void SetTimingGate(double lo, double hi) { fTLow = lo; fTHigh = hi; }
+
   //private:
     double fX;
     double fY;
-   
+    double Position(const std::vector<ddasHit>& hits) const;
+
+    // front-back time coincidence gates initialized to very wide value
+    double fTLow   = -1e9;  
+    double fTHigh  =  1e9;
+
     double fEnergy;
     double fTime;
 
