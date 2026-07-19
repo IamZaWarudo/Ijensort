@@ -5,6 +5,7 @@ add_library(GBCS SHARED
   TOFCorrector.cxx
   GSSSD.cxx
   GClover.cxx
+  PIDGates.cxx
 )
 
 target_include_directories(GBCS

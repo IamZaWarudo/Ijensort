@@ -7,6 +7,8 @@
 #include <string>
 #include <algorithm>
 #include <TSystem.h>
+#include <TTree.h>
+#include <TFile.h>
 
 #include <evtLoop.h>
 #include <ddasLoop.h>
@@ -16,7 +18,38 @@
 #include <GBCS.h>
 #include <globals.h>
 #include <TOFCorrector.h>
+#include <PIDGates.h>
 
+// Implant -> 0
+// Decay   -> 1
+//
+// IsotopeID -> Int to write a Root TTRee
+static int isotopeCode(const std::string& iso) {
+  if(iso == "32Na") return 0;
+  if(iso == "33Na") return 1;
+  if(iso == "31Ne") return 2;
+  if(iso == "32Ne") return 3;
+return -1;    // for the things that are not in the TCut gates
+}
+
+struct EventRecord {   // things recorded in the tree
+  int                  type;
+  long long            id;
+  int                  isotope;
+  double               x;
+  double               y;
+  double               timestamp;
+  double               energy;
+  int                  run;
+  std::vector<double>  gammas;
+};
+
+// Declaring TTree writes...
+static TTree* gTree = nullptr;
+static EventRecord gRec;
+static int gRun = -1;
+static long long gEventCounter = 0;
+static void FillTree(GBCS& bcs, const std::vector<ddasHit>& event, const TOFCorrector* tofCorrector);
 
 void ProcessEvent(GBCS& bcs, const std::vector<ddasHit>& event, const TOFCorrector* tofCorrector);
 
@@ -60,11 +93,13 @@ int main(int argc, char** argv) {
 
   std::string homedir = std::getenv("HOME");
   GChannel::ReadDetmap(Form("%s/Sandbox/Ijensort/cals/detmap3.tsv",homedir.c_str()));
+  PIDGates::Get().Load(Form("%s/Sandbox/Ijensort/cals/pid_cuts.root", homedir.c_str()));
 
    std::filesystem::path p(inputFiles.front());
   std::string stem = p.stem().string();
 
   int run = -1;
+  gRun = run;
   if(std::sscanf(stem.c_str(), "run-%d-%*d", &run) != 1) {
     std::cerr << "Invalid EVT filename: " << stem << "\n";
     return 1;
@@ -86,10 +121,26 @@ int main(int argc, char** argv) {
 
   evtLoop  reader(inputFiles, 500000, true);
   ddasLoop converter(reader, 200, 1);
+
+
+// Creating the tree + branches
+  gSystem->mkdir(Form("%s/Sandbox/Ijensort/tree", homedir.c_str()), true);
+  TFile* treeFile = new TFile(Form("%s/Sandbox/Ijensort/tree/tree%04d.root", homedir.c_str(), run), "recreate");
+  gTree = new TTree("events", "implant/decay events");
+  gTree->Branch("type",      &gRec.type);
+  gTree->Branch("id",        &gRec.id);
+  gTree->Branch("isotope",   &gRec.isotope);
+  gTree->Branch("x",         &gRec.x);
+  gTree->Branch("y",         &gRec.y);
+  gTree->Branch("timestamp", &gRec.timestamp);
+  gTree->Branch("energy",    &gRec.energy);
+  gTree->Branch("run",       &gRec.run);
+  gTree->Branch("gammas",    &gRec.gammas);
+
+
   reader.Start();
   converter.Start();
 
-      
   int64_t  lastPos    = 0;
   uint64_t lastBlocks = 0;
   uint64_t lastHits   = 0;
@@ -104,6 +155,7 @@ int main(int argc, char** argv) {
   // implant rate variables
   double tFirst = -1; 
   double tLast  = 0;
+
 
   while(!converter.Finished() || !converter.Empty()) {
     if(converter.TryPop(event)) {
@@ -152,6 +204,9 @@ int main(int argc, char** argv) {
 
   printf(CURSOR_DOWN "\n" SHOW_CURSOR);
 
+  treeFile->cd();
+  gTree->Write();
+  treeFile->Close();
   reader.Stop();
   double duration = (tLast - tFirst) / 1.0e8;
   printf("run duration: %.1f s\n", duration);
@@ -289,6 +344,13 @@ for(const auto &hit : event) {
    // TOF is x-axis for PID
      GHistogramer::Get().Fill("PID/pidS_Veto_Corr",4000, 0, 64000, correctedTOF,
                                                4000, 0, 16000, bcs.dE());
+
+  // One-Implant-Position map per isotope
+    std::string isotope = PIDGates::Get().Identify(correctedTOF, bcs.dE());
+    if(!isotope.empty() && bcs.fLowGain.HasPosition()) {
+      GHistogramer::Get().Fill(Form("dssd/implant_%s", isotope.c_str()),80,0,80, bcs.fLowGain.X(),
+                                                                        80,0,80, bcs.fLowGain.Y());
+    }
    }
 }
 
@@ -303,6 +365,14 @@ for(const auto &hit : event) {
                              64, 0, 64, h.fId);
   }
 
+// Decay - Gamma coincidence
+  if(bcs.IsDecay() && bcs.fHighGain.HasPosition()) {
+    for(const auto& ab : bcs.fClover.addbackHits){
+      GHistogramer::Get().Fill("decay/coincident_gamma", 16000,0,16000, ab.fEcal);
+    }
+  }
+
+
 
 
 // stupid plot - I dont even know what you are??
@@ -316,4 +386,48 @@ for(const auto &hit : event) {
 }
 
 //plot plots plotss......yay!
+
+  FillTree(bcs, event, tofCorrector);
+}
+
+
+// Tree Filling function
+static void FillTree(GBCS& bcs, const std::vector<ddasHit>& event, const TOFCorrector* tofCorrector) {
+  const long long eventId = gEventCounter++;
+
+  // Implant record
+  if(bcs.IsImplant() && bcs.fLowGain.HasPosition() && tofCorrector) {
+    const double runtime      = bcs.fPin1.Time() / 1.e8;
+    const double correctedTOF = tofCorrector->Correct(bcs.TOFS(), runtime);
+    std::string  isotope      = PIDGates::Get().Identify(correctedTOF, bcs.dE());
+
+    if(!isotope.empty()) {
+      gRec.type      = 0;
+      gRec.id        = eventId;
+      gRec.isotope   = isotopeCode(isotope);
+      gRec.x         = bcs.fLowGain.X();
+      gRec.y         = bcs.fLowGain.Y();
+      gRec.timestamp = event.front().GetTime();
+      gRec.energy    = bcs.fLowGain.Energy();
+      gRec.run       = gRun;
+      gRec.gammas.clear();
+      gTree->Fill();
+    }
+  }
+
+  // Decay record
+  if(bcs.IsDecay() && bcs.fHighGain.HasPosition()) {
+    gRec.type      = 1;
+    gRec.id        = eventId;
+    gRec.isotope   = -1;
+    gRec.x         = bcs.fHighGain.X();
+    gRec.y         = bcs.fHighGain.Y();
+    gRec.timestamp = event.front().GetTime();
+    gRec.energy    = bcs.fHighGain.Energy();
+    gRec.run       = gRun;
+    gRec.gammas.clear();
+    for(const auto& ab : bcs.fClover.addbackHits)
+      gRec.gammas.push_back(ab.fEcal);
+    gTree->Fill();
+  }
 }
