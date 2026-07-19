@@ -7,6 +7,7 @@
 #include <climits>
 #include <sstream>
 #include <vector>
+#include <filesystem>
 
 inline bool fileExists(const char *filename) {
   struct stat buffer;
@@ -22,6 +23,27 @@ inline std::vector<std::string> tokenizeString(std::string path, char delimiter 
   }
   return parts;
 }
+
+inline bool getRunNumber(const std::string& infile,int& run,int& subrun) {
+  const std::string stem = std::filesystem::path(infile).stem().string();
+
+  run = -1;
+  subrun = -1;
+
+  // Example: hist1102-00.root
+  if(std::sscanf( stem.c_str(), "hist%d-%d", &run, &subrun) == 2) {
+    return true;
+  }
+
+  // Example: hist1102.root
+  if(std::sscanf( stem.c_str(),"hist%d",&run) == 1) {
+    subrun = -1;
+    return true;
+  }
+
+  return false;
+}
+
 
 #ifdef __LINUX__
 #include <unistd.h>

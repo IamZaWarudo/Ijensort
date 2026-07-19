@@ -15,6 +15,8 @@ void GBCS::Reset() {
   fHighGain.Reset();
 
   fSSSD.Reset();
+
+  fClover.Reset();
 }
 
 // threshold defined in GBCS.h

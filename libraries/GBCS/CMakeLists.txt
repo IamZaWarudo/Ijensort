@@ -2,8 +2,9 @@ add_library(GBCS SHARED
   GBCS.cxx
   GPIN.cxx
   GDSSD.cxx
-  # TOFCorrector.cxx
+  TOFCorrector.cxx
   GSSSD.cxx
+  GClover.cxx
 )
 
 target_include_directories(GBCS
@@ -16,8 +17,9 @@ root_generate_dictionary(G__GBCS
   GBCS.h
   GPIN.h
   GDSSD.h
-  # TOFCorrector.h
+  TOFCorrector.h
   GSSSD.h
+  GClover.h
   MODULE GBCS
   LINKDEF Linkdef.h
 )
@@ -28,4 +30,8 @@ target_link_libraries(GBCS
     ROOT::Core
     ROOT::RIO
     ROOT::MathCore
+    ROOT::Hist      
+    ROOT::Graf      
+    ROOT::Gpad      
+    ROOT::Spectrum
 )

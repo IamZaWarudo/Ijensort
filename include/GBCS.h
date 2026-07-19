@@ -4,6 +4,7 @@
 #include <GPIN.h>
 #include <GDSSD.h>
 #include <GSSSD.h>
+#include <GClover.h>
 
 #include <TObject.h>
 
@@ -42,7 +43,7 @@ class GBCS {
 
     GSSSD fSSSD;
 
-    //std::vector<GClover> fCloverHits; 
+    GClover fClover;
 
   ClassDef(GBCS,1)
 };

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <TSystem.h>
 
 #include <evtLoop.h>
 #include <ddasLoop.h>
@@ -14,23 +15,81 @@
 #include <GHistogramer.h>
 #include <GBCS.h>
 #include <globals.h>
+#include <TOFCorrector.h>
 
-void ProcessEvent(GBCS& bcs, const std::vector<ddasHit>& event);
+
+void ProcessEvent(GBCS& bcs, const std::vector<ddasHit>& event, const TOFCorrector* tofCorrector);
 
 int main(int argc, char** argv) {
   if(argc < 2) { printf("usage: sort file.evt [file.evt ...]\n"); return 1; }
 
   std::vector<std::string> files;
-  for(int i = 1; i < argc; ++i) files.push_back(argv[i]);
 
-  GChannel::ReadDetmap("cals/newdetmap3.tsv");
-  GHistogramer::Get().SetOutFile("calhist.root");
+    if(argc < 2) {
+    std::cerr << "usage: sort [correction.tof] file.evt [file.evt ...]\n";
+    return 1;
+  }
 
-  evtLoop  reader(files, 500000, true);
+  std::vector<std::string> inputFiles;
+  std::string correctionFile;
+
+  for(int i = 1; i < argc; ++i) {
+    std::filesystem::path argument(argv[i]);
+    const std::string extension = argument.extension().string();
+
+    if(extension == ".evt") {
+      inputFiles.push_back(argument.string());
+    } else if(extension == ".tof") {
+      if(!correctionFile.empty()) {
+        std::cerr << "Only one .tof file may be supplied\n";
+        return 1;
+      }
+      correctionFile = argument.string();
+    } else {
+      std::cerr << "Unsupported input file: " << argument << "\n";
+      return 1;
+    }
+  }
+
+  if(inputFiles.empty()) {
+    std::cerr << "No EVT files supplied\n";
+    return 1;
+  }
+
+  std::sort(inputFiles.begin(), inputFiles.end());
+
+  std::string homedir = std::getenv("HOME");
+  GChannel::ReadDetmap(Form("%s/Sandbox/Ijensort/cals/detmap3.tsv",homedir.c_str()));
+
+   std::filesystem::path p(inputFiles.front());
+  std::string stem = p.stem().string();
+
+  int run = -1;
+  if(std::sscanf(stem.c_str(), "run-%d-%*d", &run) != 1) {
+    std::cerr << "Invalid EVT filename: " << stem << "\n";
+    return 1;
+  }
+  gSystem->mkdir("hist", true);
+  std::string ofile;
+  if(correctionFile.empty())
+    ofile = Form("hist/hist%04d.root", run);
+  else
+    ofile = Form("hist/hist%04d_tofcorrected.root", run);
+
+  GHistogramer::Get().SetOutFile(ofile);
+
+  std::unique_ptr<TOFCorrector> tofCorrector;
+    if(!correctionFile.empty()) {
+      std::cout << "Loading TOF correction: " << correctionFile << "\n";
+      tofCorrector = std::make_unique<TOFCorrector>(correctionFile);
+    }
+
+  evtLoop  reader(inputFiles, 500000, true);
   ddasLoop converter(reader, 200, 1);
   reader.Start();
   converter.Start();
 
+      
   int64_t  lastPos    = 0;
   uint64_t lastBlocks = 0;
   uint64_t lastHits   = 0;
@@ -41,9 +100,17 @@ int main(int argc, char** argv) {
 
   GBCS bcs;
   std::vector<ddasHit> event;
+  
+  // implant rate variables
+  double tFirst = -1; 
+  double tLast  = 0;
+
   while(!converter.Finished() || !converter.Empty()) {
     if(converter.TryPop(event)) {
-      ProcessEvent(bcs, event);
+      double t = event.front().GetTime();   // Run Duration
+      if(tFirst<0) tFirst = t;              // rate
+      if(t>tLast) tLast = t;                // calculation
+      ProcessEvent(bcs, event, tofCorrector.get());
       event.clear();
     }
 
@@ -86,12 +153,14 @@ int main(int argc, char** argv) {
   printf(CURSOR_DOWN "\n" SHOW_CURSOR);
 
   reader.Stop();
+  double duration = (tLast - tFirst) / 1.0e8;
+  printf("run duration: %.1f s\n", duration);
   converter.Stop();
   GHistogramer::Get().Close();
   return 0;
 }
 
-void ProcessEvent(GBCS& bcs, const std::vector<ddasHit>& event) {
+void ProcessEvent(GBCS& bcs, const std::vector<ddasHit>& event, const TOFCorrector* tofCorrector) {
   bcs.Reset();
 
 for(const auto &hit : event) {
@@ -126,6 +195,9 @@ for(const auto &hit : event) {
       case 183:
         bcs.fPin3.Unpack(hit);
         break;
+      case 208 ... 271:  // 16 Clover x 4 crystals
+        bcs.fClover.Unpack(hit, hit.GetId() - 208);
+        break;
       case 272 ... 287:  // SSSD strips 0-15 (16 strips)
         bcs.fSSSD.AddHit(hit);
       break;
@@ -137,6 +209,7 @@ for(const auto &hit : event) {
 
   bcs.fHighGain.Build();
   bcs.fLowGain.Build();
+  bcs.fClover.BuildAddback();
 
 
 // Fill histograms for each hit in the event
@@ -155,10 +228,92 @@ for(const auto &hit : event) {
 
   //Position Plots
   if(bcs.fHighGain.HasPosition()){     // High-gain -> Decay (car crash down the street)
-    GHistogramer::Get().Fill("dssd/high_gain_position", 40, 0, 40, bcs.fHighGain.X(),
-                                                        40, 0, 40, bcs.fHighGain.Y());}
+    GHistogramer::Get().Fill("dssd/high_gain_position", 80, 0, 80, bcs.fHighGain.X(),
+                                                        80, 0, 80, bcs.fHighGain.Y());}
   if(bcs.fLowGain.HasPosition()){     // Low-gain -> Implant (meteor crash down the street)
-    GHistogramer::Get().Fill("dssd/low_gain_position", 40, 0, 40, bcs.fLowGain.X(),
-                                                       40, 0, 40, bcs.fLowGain.Y());}
+    GHistogramer::Get().Fill("dssd/low_gain_position", 80, 0, 80, bcs.fLowGain.X(),
+                                                       80, 0, 80, bcs.fLowGain.Y());}
 
+  if(bcs.IsImplant() && bcs.fLowGain.HasPosition()) {
+    GHistogramer::Get().Fill("dssd/implant_map",80, 0, 80, bcs.fLowGain.X(),
+                                                80, 0, 80, bcs.fLowGain.Y());}
+  if(bcs.IsDecay() && bcs.fHighGain.HasPosition()) {
+      GHistogramer::Get().Fill("dssd/Decay_map",80, 0, 80, bcs.fHighGain.X(),
+                                                  80, 0, 80, bcs.fHighGain.Y());}
+  
+
+// Idea - Implantation rate plot to normalize the weird IsImplant plot
+
+
+// Validity check between PIN1 and I2N
+  if((bcs.fPin1.Time() > 10) && (bcs.fI2N.Time()>10)) { 
+    GHistogramer::Get().Fill("PID/pidN",4000,0,64000,bcs.TOFN(),
+                                  4000,0,16000,bcs.dE());
+    GHistogramer::Get().Fill("TOF/tofN",3600,0,7200,bcs.fPin1.Time()/1.e8,
+                                     4000,0,64000,bcs.TOFN());
+  }
+
+// Validity check between PIN1 and I2S
+  if((bcs.fPin1.Time() > 10) && (bcs.fI2S.Time()>10)) { 
+  const double runtime = bcs.fPin1.Time() / 1.e8;
+  const double rawTOF = bcs.TOFS();
+
+    GHistogramer::Get().Fill("PID/pidS",4000,0,64000,bcs.TOFS(),
+                                  4000,0,16000,bcs.dE());
+    GHistogramer::Get().Fill("TOF/tofS",3600,0,7200,bcs.fPin1.Time()/1.e8,
+                                     4000,0,64000,bcs.TOFS());
+  
+    // tof_S used for the .tof calibration
+   if(tofCorrector) {
+     const double correctedTOF = tofCorrector->Correct(rawTOF,runtime);
+
+     GHistogramer::Get().Fill("TOF/tofS_corr",3600, 0, 7200, runtime,
+                                               4000, 0, 64000, correctedTOF);
+   // TOF is x-axis for PID
+     GHistogramer::Get().Fill("PID/pidS_Corr",4000, 0, 64000, correctedTOF,
+                                               4000, 0, 16000, bcs.dE());
+   }
+}
+
+// PID with veto plot (for particle identification)
+  if(bcs.IsImplant() && (bcs.fPin1.Time() > 10) && (bcs.fI2S.Time()>10)) { 
+   const double runtime = bcs.fPin1.Time() / 1.e8;
+   const double rawTOF = bcs.TOFS();
+
+    GHistogramer::Get().Fill("PID/pidS_Veto",4000,0,64000,bcs.TOFS(),
+                                  4000,0,16000,bcs.dE());
+    // tof_S used for the .tof calibration
+   if(tofCorrector) {
+     const double correctedTOF = tofCorrector->Correct(rawTOF,runtime);
+
+   // TOF is x-axis for PID
+     GHistogramer::Get().Fill("PID/pidS_Veto_Corr",4000, 0, 64000, correctedTOF,
+                                               4000, 0, 16000, bcs.dE());
+   }
+}
+
+// Clover Plots
+  for(const auto& ab : bcs.fClover.addbackHits) {
+    GHistogramer::Get().Fill("clover/addback", 4000, 0, 32000, ab.fEcal,
+                             16, 0, 16, ab.fId);
+   // GHistogramer::Get().Fill("clover/addback_mult", 8, 0, 8, ab.Mult());
+  }
+  for(const auto& h : bcs.fClover.hits) {
+    GHistogramer::Get().Fill("clover/crystal", 4000, 0, 32000, h.fEcal,
+                             64, 0, 64, h.fId);
+  }
+
+
+
+// stupid plot - I dont even know what you are??
+ for(const auto& front : bcs.fHighGain.fFront) {
+    for(const auto& back : bcs.fHighGain.fBack) {
+      // int front_slot = (front.GetAddress() & 0xff00) >> 8;
+      // int back_slot  = (back.GetAddress()  & 0xff00) >> 8;
+      GHistogramer::Get().Fill(
+          Form("dssd/High_front_energy_vs_back_energy"),4000, 0, 32000, front.GetEcal(),
+                                                        4000, 0, 32000, back.GetEcal());}
+}
+
+//plot plots plotss......yay!
 }
