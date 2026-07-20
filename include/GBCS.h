@@ -23,8 +23,8 @@ class GBCS {
     bool Triggered() const { return fLowGain.Triggered() || fHighGain.Triggered(); }
 
   // Implant-Decay correlation thresholds
-    static constexpr double th1 = 2000; 
-    static constexpr double th2 = 5200;
+    static constexpr double th1 = 600; 
+    static constexpr double th2 = 5280;
 
     bool IsImplant() const;
     bool IsDecay()   const;

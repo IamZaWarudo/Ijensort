@@ -25,11 +25,8 @@
 //
 // IsotopeID -> Int to write a Root TTRee
 static int isotopeCode(const std::string& iso) {
-  if(iso == "32Na") return 0;
-  if(iso == "33Na") return 1;
-  if(iso == "31Ne") return 2;
-  if(iso == "32Ne") return 3;
-return -1;    // for the things that are not in the TCut gates
+  if(iso == "Na") return 0;
+return -1;    // for the things that are not in the TCut gate
 }
 
 struct EventRecord {   // things recorded in the tree
@@ -95,7 +92,7 @@ int main(int argc, char** argv) {
   GChannel::ReadDetmap(Form("%s/Sandbox/Ijensort/cals/detmap3.tsv",homedir.c_str()));
   PIDGates::Get().Load(Form("%s/Sandbox/Ijensort/cals/pid_cuts.root", homedir.c_str()));
 
-   std::filesystem::path p(inputFiles.front());
+  std::filesystem::path p(inputFiles.front());
   std::string stem = p.stem().string();
 
   int run = -1;

@@ -1,6 +1,6 @@
 // This is sooo weird
 //
-// hours wasted : 17 
+// hours wasted : 18 
 //
 // Note:  adapting betasort "pause and correlate" mechanism, prune old implant, finalize decays after window passes. flush at end. 
 //              Keeping my custom correlation logic though. per-isotope window, 3x3 window, flagging ambiguos correlations, forward - backward subtraction
@@ -13,6 +13,8 @@
 #include <string>
 #include <cmath>
 #include <filesystem>
+#include <chrono>
+
 #include <TChain.h>
 #include <TFile.h>
 #include <TTree.h>
@@ -20,16 +22,16 @@
 #include <globals.h>
 
 // configuration
-static const char* IsotopeName[4] = {"32Na", "33Na", "31Ne", "32Ne"};
-static const double HalfLife[4] = {13.2, 8.2, 3.4, 4.5};   // half-life (in ms) taken from  https://www.nndc.bnl.gov/nudat3/
+static const char* IsotopeName[1] = {"Na"};
+static const double HalfLife[1] = {13.2};   // half-life (in ms) taken from  https://www.nndc.bnl.gov/nudat3/
 static const double Ticks_per_ms = 100000.0;     // 10 ns/tick → 100,000 ticks per ms
 
 // calculating tc for each isotope
 static double tcTicks(int iso) { return 10.0 * HalfLife[iso] * Ticks_per_ms; } // k - value 
 static double maxTc() {
     double m = 0;
-    for(int i = 0; i < 4; i++) m = std::max(m, tcTicks(i));
-    return m;
+    for(int i = 0; i < 1; i++) m = std::max(m, tcTicks(i));  
+    return tcTicks(0);
 }
 
 struct Event {
@@ -79,7 +81,7 @@ struct Correlation {
 class Correlator {
 public:
     Correlator() {
-        for(int i = 0; i < 4; i++) {
+        for(int i = 0; i < 1; i++) {
             double Window = 10.0 * HalfLife[i];       // per-Isotope forward dt spectrum
             fFwd[i] = new TH1D(Form("fwd_%s", IsotopeName[i]), Form("forward dt %s;dt (ms);counts", IsotopeName[i]),
                          1000, 0, Window);            // per-Isotope backward dt spectrum
@@ -91,6 +93,7 @@ public:
   // an implant arrives: store it in its pixel
   void AddImplant(const Event& e) {
     Implant im{e.id, e.isotope, (int)std::lround(e.x), (int)std::lround(e.y), e.timestamp, e.energy};
+    if(im.isotope < 0 || im.isotope >= 1) return;
     if(im.x < 0 || im.x >= 40 || im.y < 0 || im.y >= 40) return;
     fGrid[im.x][im.y].push_back(im);
   }
@@ -132,18 +135,21 @@ public:
     Decay d{e.id, (int)std::lround(e.x), (int)std::lround(e.y), e.timestamp, e.energy,
             e.gammas ? *e.gammas : std::vector<double>{}};
     if(d.x < 0 || d.x >= 40 || d.y < 0 || d.y >= 40) return;
-    fDecays.push_back(d);
+    fDecayGrid[d.x][d.y].push_back(d);
   }
 
   // BACKWARD search for one implant about to be retired:
   // decays in its 3x3 with -tc <= (tD - tI) < 0
-  void BackwardSearch(const Implant& im) {
+    void BackwardSearch(const Implant& im) {
     std::vector<Decay> candidates;
-    for(const auto& d : fDecays) {
-      if(std::abs(d.x - im.x) > 1 || std::abs(d.y - im.y) > 1) continue;
-      double dt = d.t - im.t;
-      if(dt < 0 && dt >= -tcTicks(im.isotope))
-        candidates.push_back(d);
+    for(int ix = std::max(0, im.x-1); ix <= std::min(39, im.x+1); ++ix) {
+      for(int iy = std::max(0, im.y-1); iy <= std::min(39, im.y+1); ++iy) {
+        for(const auto& d : fDecayGrid[ix][iy]) {
+          double dt = d.t - im.t;
+          if(dt < 0 && dt >= -tcTicks(im.isotope))
+            candidates.push_back(d);
+        }
+      }
     }
     if(candidates.size() == 1) {
       const Decay& d = candidates[0];
@@ -167,9 +173,13 @@ public:
         }
       }
     // evict decays older than 2 * max window (no implant will look back that far)
-    while(!fDecays.empty() && current_time - fDecays.front().t > 2.0 * maxTc())
-      fDecays.pop_front();
+      for(int x = 0; x < 40; ++x)
+      for(int y = 0; y < 40; ++y) {
+        auto& dlist = fDecayGrid[x][y];
+        while(!dlist.empty() && current_time - dlist.front().t > 2.0 * maxTc())
+          dlist.pop_front();
   }
+}
 
   void Flush() {
     // end of data: retire everything remaining
@@ -180,7 +190,7 @@ public:
   }
 
   void Write() {
-    for(int i = 0; i < 4; i++) {
+    for(int i = 0; i < 1; i++) {
       fFwd[i]->Write();
       fBwd[i]->Write();
       TH1D* tru = (TH1D*)fFwd[i]->Clone(Form("true_%s", IsotopeName[i]));
@@ -229,9 +239,9 @@ private:
   }
 
   std::deque<Implant> fGrid[40][40];
-  std::deque<Decay>   fDecays;
-  TH1D* fFwd[4];
-  TH1D* fBwd[4];
+  std::deque<Decay>   fDecayGrid[40][40];
+  TH1D* fFwd[1];   // same changes here 4 -> 1 , only see the sodium blob
+  TH1D* fBwd[1];   
   TTree* fCorrTree = nullptr;
   Correlation fRec;
 };
@@ -268,6 +278,9 @@ int main(int argc, char** argv) {
   Long64_t nEntries = chain.GetEntries();
   printf("correlating %lld events...\n", nEntries);
 
+  auto lastTime = std::chrono::steady_clock::now();  
+  Long64_t lastEntry = 0; 
+
   for(Long64_t i = 0; i < nEntries; ++i) {
     chain.GetEntry(i);
 
@@ -281,13 +294,21 @@ int main(int argc, char** argv) {
     corr.Retire(e.timestamp);
 
     if(i % 100000 == 0) {
+      auto now = std::chrono::steady_clock::now();
+      double dt = std::chrono::duration<double>(now - lastTime).count();
+      double rate = dt > 0 ? (i - lastEntry) / dt : 0;   // events/s since last print
+
       double percent = 100.0 * i / nEntries;
       int barWidth = 30;
       int filled = (int)(percent / 100.0 * barWidth);
       printf("\r[");
       for(int b = 0; b < barWidth; ++b) putchar(b < filled ? '#' : '-');
-      printf("] %6.2f%%  (%lld/%lld)", percent, i, nEntries);
+      printf("] %6.2f%%  %.2f M events/s  (%lld/%lld)",
+             percent, rate / 1e6, i, nEntries);
       fflush(stdout);
+
+      lastTime = now;
+      lastEntry = i;
     }
   }
   printf("\n");
