@@ -31,7 +31,8 @@ bool GBCS::IsDecay() const {
   // For Decay PIN and SSSD has to be silent.
   // Silent = below threshold th1 (noise)
   bool noPin = !(fPin1.Time() > 0 || fPin2.Time() > 0 || fPin3.Time() > 0);
-  return fHighGain.Triggered() && noPin && fSSSD.MaximumEnergy() < th1;
+//  return fHighGain.Triggered() && noPin && fSSSD.MaximumEnergy() < th1;
+  return fHighGain.Triggered() && noPin && fSSSD.Empty();
 }
 
 // gating verified based on dt = front - back v/s count plot

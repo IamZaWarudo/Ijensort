@@ -28,6 +28,7 @@ static const double Ticks_per_ms = 100000.0;     // 10 ns/tick → 100,000 ticks
 
 // calculating tc for each isotope
 static double tcTicks(int iso) { return 10.0 * HalfLife[iso] * Ticks_per_ms; } // k - value 
+// static double tcTicks(int iso) { return 100000000.0; }   // 1 sec hardcoded = 1e8 ticks (10 ns/tick)
 static double maxTc() {
     double m = 0;
     for(int i = 0; i < 1; i++) m = std::max(m, tcTicks(i));  
@@ -98,8 +99,7 @@ public:
     fGrid[im.x][im.y].push_back(im);
   }
 
-  // a decay arrives: FORWARD search over stored implants in its 3x3
-  void ProcessDecayForward(const Event& e) {
+    void ProcessDecayForward(const Event& e) {
     int xD = (int)std::lround(e.x), yD = (int)std::lround(e.y);
     if(xD < 0 || xD >= 40 || yD < 0 || yD >= 40) return;
 
@@ -109,26 +109,26 @@ public:
       for(int iy = std::max(0, yD-1); iy <= std::min(39, yD+1); ++iy) {
         auto& list = fGrid[ix][iy];
         for(auto& im : list) {
-          double dt = e.timestamp - im.t;                 // implant-anchored
-          if(dt > 0 && dt <= tcTicks(im.isotope))
+          double dt = e.timestamp - im.t;
+          if(dt > 0 && dt <= tcTicks(im.isotope)) {
             candidates.push_back(im);
+            double dtMs = dt / Ticks_per_ms;
+            fFwd[im.isotope]->Fill(dtMs);        // fill EVERY forward pair (matches backward)
+          }
         }
       }
     }
 
+    // records: keep the accepted/ambiguous bookkeeping (parent ID), separate from the spectrum
     int n = candidates.size();
     if(n == 1) {
-      const Implant& im = candidates[0];
-      double dtMs = (e.timestamp - im.t) / Ticks_per_ms;
-      fFwd[im.isotope]->Fill(dtMs);
-      WriteRecord(im, e, n, /*accepted*/true, /*ambiguous*/false, /*backward*/false);
+      WriteRecord(candidates[0], e, n, /*accepted*/true, /*ambiguous*/false, /*backward*/false);
     } else if(n > 1) {
-      // ambiguous: record each, NO spectrum
       for(const auto& im : candidates)
         WriteRecord(im, e, n, false, true, false);
     }
-    // n == 0: uncorrelated, no record needed (or record if you want)
   }
+
 
   // hold decays for the backward search
   void AddDecay(const Event& e) {
@@ -140,24 +140,20 @@ public:
 
   // BACKWARD search for one implant about to be retired:
   // decays in its 3x3 with -tc <= (tD - tI) < 0
-    void BackwardSearch(const Implant& im) {
-    std::vector<Decay> candidates;
+  void BackwardSearch(const Implant& im) {
     for(int ix = std::max(0, im.x-1); ix <= std::min(39, im.x+1); ++ix) {
       for(int iy = std::max(0, im.y-1); iy <= std::min(39, im.y+1); ++iy) {
         for(const auto& d : fDecayGrid[ix][iy]) {
           double dt = d.t - im.t;
-          if(dt < 0 && dt >= -tcTicks(im.isotope))
-            candidates.push_back(d);
+          if(dt < 0 && dt >= -tcTicks(im.isotope)) {
+            double dtMs = std::abs(dt) / Ticks_per_ms;
+            fBwd[im.isotope]->Fill(dtMs);      // fill EVERY backward decay, no uniqueness
+          }
         }
       }
     }
-    if(candidates.size() == 1) {
-      const Decay& d = candidates[0];
-      double dtMs = std::abs(d.t - im.t) / Ticks_per_ms;
-      fBwd[im.isotope]->Fill(dtMs);
-    }
-    // else: background-ambiguous, no spectrum
   }
+
 
   // retirement: called as current_time advances.
   // an implant is safe to retire once current_time > im.t + tc (no future
@@ -176,7 +172,7 @@ public:
       for(int x = 0; x < 40; ++x)
       for(int y = 0; y < 40; ++y) {
         auto& dlist = fDecayGrid[x][y];
-        while(!dlist.empty() && current_time - dlist.front().t > 2.0 * maxTc())
+        while(!dlist.empty() && current_time - dlist.front().t > 3.0 * maxTc())
           dlist.pop_front();
   }
 }
