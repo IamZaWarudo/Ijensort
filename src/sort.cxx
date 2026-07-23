@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
   std::sort(inputFiles.begin(), inputFiles.end());
 
   std::string homedir = std::getenv("HOME");
-  GChannel::ReadDetmap(Form("%s/Sandbox/Ijensort/cals/detmap3.tsv",homedir.c_str()));
+  GChannel::ReadDetmap(Form("%s/Sandbox/Ijensort/cals/detmapfix.tsv",homedir.c_str()));
   PIDGates::Get().Load(Form("%s/Sandbox/Ijensort/cals/pid_cuts.root", homedir.c_str()));
 
   std::filesystem::path p(inputFiles.front());
@@ -273,9 +273,9 @@ for(const auto &hit : event) {
 
 
   // The one histogram that matters first: the SSSD spectrum that tells us t_h1/t_h2.
-  double sssdMax = bcs.fSSSD.MaximumEnergy();
-  if(sssdMax > 0)
-    GHistogramer::Get().Fill("sssd/max_energy", 4000, 0, 32000, sssdMax);
+ // double sssdMax = bcs.fSSSD.MaximumEnergy();
+  //if(sssdMax > 0)
+   // GHistogramer::Get().Fill("sssd/max_energy", 4000, 0, 32000, sssdMax);
 
 
   //Position Plots

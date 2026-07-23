@@ -40,3 +40,9 @@ GBCS::GBCS() {
   fHighGain.SetTimingGate(4,13);    // HG: 4-13 ticks
   fLowGain.SetTimingGate(2,7);      // LG: 2-7 ticks
 }
+
+
+//GBCS::Build() {
+
+
+//}

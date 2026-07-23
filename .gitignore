@@ -16,6 +16,7 @@ a.out
 *.c
 *.tof
 
+evtfile
 run1102
 
 .DS_Store
